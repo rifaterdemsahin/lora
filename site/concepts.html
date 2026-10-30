@@ -1,0 +1,129 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>LoRA Lab: Concepts</title>
+<meta name="description" content="Large language models, closed weights, open weights and LoRA, each explained from first principles with tell, show, do, apply.">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div id="nav"></div>
+<main>
+  <span class="kicker">Concepts</span>
+  <h1>Four ideas, from first principles</h1>
+  <p class="lede">Each concept follows the same four beats: <b>Tell</b> it plainly, <b>Show</b> it, <b>Do</b> something small, <b>Apply</b> it to a real decision.</p>
+
+  <h2 id="llm">1. Large language model</h2>
+  <div class="principle"><b>First principle.</b> A language model is a function from a sequence of tokens to a probability distribution over the next token. Everything else is scale and training.</div>
+  <div class="tsda">
+    <div class="step tell"><span class="tag">Tell</span>
+      <p>Text is cut into tokens (word pieces). Each token becomes a vector. A stack of transformer blocks mixes those vectors using <em>attention</em> (which earlier tokens matter) and <em>MLPs</em> (nonlinear transforms). The last layer scores every token in the vocabulary. Pick one, append it, repeat. The numbers inside the blocks are the <strong>weights</strong>, learned by gradient descent to make real text likely.</p>
+    </div>
+    <div class="step show"><span class="tag">Show</span>
+<pre>"The capital of France is"
+   → tokens        [The][ capital][ of][ France][ is]
+   → transformer   (attention + MLP) × N layers
+   → next-token    " Paris" 0.91   " a" 0.02   " located" 0.01 ...
+   → sample, append, repeat</pre>
+    </div>
+    <div class="step do"><span class="tag">Do</span>
+      <p>Run a small open model locally and read the probabilities yourself:</p>
+<pre>pip install transformers torch
+python - &lt;&lt;'PY'
+from transformers import AutoModelForCausalLM, AutoTokenizer
+import torch
+name = "Qwen/Qwen2.5-0.5B"          # any small open model
+tok = AutoTokenizer.from_pretrained(name)
+m = AutoModelForCausalLM.from_pretrained(name)
+ids = tok("The capital of France is", return_tensors="pt")
+p = torch.softmax(m(**ids).logits[0, -1], -1)
+for s, i in zip(*torch.topk(p, 5)):
+    print(f"{tok.decode(i)!r:12} {s:.3f}")
+PY</pre>
+    </div>
+    <div class="step apply"><span class="tag">Apply</span>
+      <p>Because behaviour is "which tokens become likely," changing behaviour means changing those probabilities: with a prompt (cheap, shallow), with data you retrieve (RAG), or with the weights (deep). The rest of this site is about the last option.</p>
+    </div>
+  </div>
+
+  <h2 id="closed">2. Closed weights</h2>
+  <div class="principle"><b>First principle.</b> If you cannot hold the weights, you rent the behaviour. The owner can change it, filter it or withdraw it at any time.</div>
+  <div class="tsda">
+    <div class="step tell"><span class="tag">Tell</span>
+      <p>With a closed model the vendor keeps the weights on their servers and sells access through an API. You send tokens, you get tokens. The vendor decides the safety policy, the filters, the price, the versions and the data retention. You get convenience and frontier quality; you give up control and inspectability.</p>
+    </div>
+    <div class="step show"><span class="tag">Show</span>
+      <div class="tablewrap"><table>
+        <tr><th>You can</th><th>You cannot</th></tr>
+        <tr><td>Write system prompts, call tools, use the vendor's own fine-tuning if offered</td><td>Download or inspect the weights</td></tr>
+        <tr><td>Pick among the vendor's model versions</td><td>Pin a model forever if the vendor retires it</td></tr>
+        <tr><td>Rely on the vendor's safety stack</td><td>Remove or recalibrate that stack</td></tr>
+      </table></div>
+    </div>
+    <div class="step do"><span class="tag">Do</span>
+      <p>Write down three tasks your product needs. Mark each: does a closed API already do it within policy? If yes for all three, you probably do not need to train anything.</p>
+    </div>
+    <div class="step apply"><span class="tag">Apply</span>
+      <p>Choose closed weights when you want the best general capability fast and the vendor's policy fits your use. Their guardrails are a feature for most products, and they are not something to engineer around.</p>
+    </div>
+  </div>
+
+  <h2 id="open">3. Open weights</h2>
+  <div class="principle"><b>First principle.</b> Publishing the weights hands over the behaviour, including the ability to change it. "Open weights" is not the same as "open source".</div>
+  <div class="tsda">
+    <div class="step tell"><span class="tag">Tell</span>
+      <p>An open-weight model ships its trained numbers (usually as <code>.safetensors</code> files) under a licence. You can run it on your own hardware, fine-tune it and inspect it. Training data and code are often <em>not</em> released, and licences vary: some are permissive (Apache 2.0), some add use restrictions or user-count thresholds. Read the licence before you build on it.</p>
+    </div>
+    <div class="step show"><span class="tag">Show</span>
+<pre>model-00001-of-00004.safetensors   ← the weights (the behaviour)
+config.json                        ← architecture: layers, heads, dims
+tokenizer.json                     ← text ↔ tokens
+generation_config.json             ← default sampling settings
+LICENSE                            ← what you are allowed to do</pre>
+    </div>
+    <div class="step do"><span class="tag">Do</span>
+      <pre>huggingface-cli download Qwen/Qwen2.5-0.5B-Instruct --local-dir ./base
+cat ./base/config.json | head -30     # read the architecture
+cat ./base/LICENSE | head -20         # read the terms</pre>
+    </div>
+    <div class="step apply"><span class="tag">Apply</span>
+      <p>Choose open weights when you need data to stay on your machines, need a behaviour no vendor will sell you (a domain voice, a narrower or looser refusal policy within the law), or need to control cost at scale. You then own the safety work too.</p>
+    </div>
+  </div>
+
+  <h2 id="lora">4. LoRA (low-rank adaptation)</h2>
+  <div class="principle"><b>First principle.</b> The change needed to adapt a trained model is much simpler than the model itself, so it can be written with far fewer numbers.</div>
+  <div class="tsda">
+    <div class="step tell"><span class="tag">Tell</span>
+      <p>Full fine-tuning updates every weight, which needs memory for the weights, the gradients and the optimiser state. LoRA freezes each chosen weight matrix <code>W</code> and learns an update <code>ΔW = B·A</code> where <code>B</code> is <em>d × r</em> and <code>A</code> is <em>r × k</em>, with <em>r</em> tiny. A matrix of rank <em>r</em> can only move the model along <em>r</em> directions, but research found that is usually enough to steer style, format and policy. The adapter is a small separate file; delete it and the base model is untouched.</p>
+    </div>
+    <div class="step show"><span class="tag">Show</span>
+<pre>W   : 4096 × 4096  = 16,777,216 numbers (frozen)
+A   :   16 × 4096  =     65,536
+B   : 4096 ×   16  =     65,536
+A+B                =    131,072   (0.78% of W)
+
+forward:  y = W·x + (α/r)·B·(A·x)
+init   :  B = 0  →  the adapter starts as a no-op
+merge  :  W' = W + (α/r)·B·A     →  no extra inference cost</pre>
+      <p>See the interactive version on the <a href="index.html#d">Architecture page</a>.</p>
+    </div>
+    <div class="step do"><span class="tag">Do</span>
+<pre>from peft import LoraConfig, get_peft_model
+cfg = LoraConfig(r=16, lora_alpha=32, lora_dropout=0.05,
+                 target_modules=["q_proj","k_proj","v_proj","o_proj",
+                                 "gate_proj","up_proj","down_proj"],
+                 task_type="CAUSAL_LM")
+model = get_peft_model(base_model, cfg)
+model.print_trainable_parameters()   # trainable: ~0.5% of total</pre>
+    </div>
+    <div class="step apply"><span class="tag">Apply</span>
+      <p>Use LoRA when you have a narrow behaviour to teach, one GPU, and want to keep several variants (one adapter per customer, domain or tone) on a single shared base. Use full fine-tuning when you need to teach a lot of new knowledge. Next: the <a href="sop.html">SOP</a>.</p>
+    </div>
+  </div>
+</main>
+<footer>LoRA Lab. Educational material. Deployed on Fly.io.</footer>
+<script src="nav.js"></script>
+</body>
+</html>
