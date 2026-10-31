@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>LoRA Lab: Responsible use</title>
+<meta name="description" content="What 'uncensored' honestly means for a language model, who is accountable, and the limits that stay in place.">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div id="nav"></div>
+<main>
+  <span class="kicker">Responsible use</span>
+  <h1>What "uncensored" really means</h1>
+  <p class="lede">No model is uncensored in the absolute sense. Every model reflects the data and choices of whoever trained it. The honest question is: <em>whose choices, and who answers for the results?</em></p>
+
+  <div class="tsda">
+    <div class="step tell"><span class="tag">Tell</span>
+      <p>Closed-weight vendors make that choice for you and answer for it. With open weights, <strong>you</strong> make it and you carry the legal, ethical and reputational responsibility for what the model produces. Over-refusal is a real cost: it blocks researchers, writers, clinicians and lawyers. Under-refusal is a real cost too: it can produce material that harms people. The skill is calibration.</p></div>
+    <div class="step show"><span class="tag">Show</span>
+      <div class="tablewrap"><table>
+        <tr><th>Reasonable to loosen</th><th>Keep fixed regardless</th></tr>
+        <tr><td>Blunt technical explanation for security professionals</td><td>Sexual content involving minors</td></tr>
+        <tr><td>Dark themes in fiction, without moralising</td><td>Help building weapons capable of mass harm</td></tr>
+        <tr><td>Direct factual medical, legal and drug-safety information</td><td>Targeting, stalking or doxxing a real person</td></tr>
+        <tr><td>Removing boilerplate disclaimers</td><td>Fraud, malware ready for deployment against others</td></tr>
+        <tr><td>Controversial but legitimate topics, balanced</td><td>Encouraging self-harm</td></tr>
+      </table></div></div>
+    <div class="step do"><span class="tag">Do</span>
+      <p>Before training, complete this checklist:</p>
+      <ul>
+        <li>Written policy with named owner (SOP Step 1)</li>
+        <li>Licence checked for the base model and the use case</li>
+        <li>Dataset reviewed by a human, with kept-refusal examples included</li>
+        <li>Evaluation covering both over-refusal and under-refusal (SOP Step 6)</li>
+        <li>Access limited to the intended audience, with logging (SOP Step 8)</li>
+        <li>Local law and your employer's or customers' rules reviewed</li>
+      </ul></div>
+    <div class="step apply"><span class="tag">Apply</span>
+      <p>If you cannot say who is allowed to use the adapted model and what it must never do, you are not ready to deploy it. Start with a prompt change, move to LoRA only when the evidence says you need it, and keep the guards.</p></div>
+  </div>
+</main>
+<footer>LoRA Lab. Educational material. Deployed on Fly.io.</footer>
+<script src="nav.js"></script>
+</body>
+</html>

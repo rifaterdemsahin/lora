@@ -1,0 +1,110 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>LoRA Lab: Alternatives</title>
+<meta name="description" content="Alternatives to LoRA for changing a language model's behaviour: prompting, RAG, full fine-tuning, QLoRA, DPO, representation editing, and vendor options.">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div id="nav"></div>
+<main>
+  <span class="kicker">Alternatives</span>
+  <h1>Other ways to change what a model does</h1>
+  <p class="lede">LoRA is one point on a ladder. Climb only as high as the problem needs: each rung costs more and gives you more control, and more responsibility.</p>
+  <div class="principle"><b>First principle.</b> Behaviour can be changed in three places: the <em>input</em> (prompt, retrieved text), the <em>weights</em> (training), or the <em>activations</em> (editing the model's internal state at run time). Cheaper and shallower sits at the input; deeper and stickier sits at the weights.</div>
+
+  <h2>Comparison</h2>
+  <div class="tablewrap"><table>
+    <tr><th>Approach</th><th>Changes</th><th>Cost</th><th>Needs open weights</th><th>Best for</th></tr>
+    <tr><td><a href="#prompt">System prompt / few-shot</a></td><td>Input</td><td>Minutes</td><td>No</td><td>Tone, format, context, first attempt at anything</td></tr>
+    <tr><td><a href="#rag">RAG</a></td><td>Input</td><td>Days</td><td>No</td><td>Facts and documents that change</td></tr>
+    <tr><td><a href="#vendor">Vendor fine-tuning</a></td><td>Weights (hosted)</td><td>Low</td><td>No</td><td>Style and task fit inside the vendor's policy</td></tr>
+    <tr><td><a href="#lora">LoRA</a></td><td>Weights (adapter)</td><td>One GPU, hours</td><td>Yes</td><td>Narrow behaviour, many variants</td></tr>
+    <tr><td><a href="#qlora">QLoRA</a></td><td>Weights (adapter, 4-bit base)</td><td>One consumer GPU</td><td>Yes</td><td>Same as LoRA, with tight memory</td></tr>
+    <tr><td><a href="#dpo">DPO / preference tuning</a></td><td>Weights</td><td>LoRA cost plus pair data</td><td>Yes</td><td>Preferring one style of answer over another</td></tr>
+    <tr><td><a href="#full">Full fine-tuning</a></td><td>All weights</td><td>Multi-GPU</td><td>Yes</td><td>Large behaviour or knowledge shifts</td></tr>
+    <tr><td><a href="#repr">Representation editing</a></td><td>Activations or weights</td><td>Low compute, little data</td><td>Yes</td><td>Research; blunt, global changes</td></tr>
+    <tr><td><a href="#pick">Choose a pre-tuned open model</a></td><td>Nothing: someone else trained it</td><td>Zero</td><td>Yes</td><td>Baseline before training your own</td></tr>
+  </table></div>
+
+  <h2 id="prompt">System prompt and few-shot examples</h2>
+  <div class="tsda">
+    <div class="step tell"><span class="tag">Tell</span><p>Put the context in the input: who the user is, what the task is, what format to use. A well-framed professional request ("I am a clinician preparing…") often removes a refusal that a bare question triggers, because the model weighs likely intent.</p></div>
+    <div class="step show"><span class="tag">Show</span><pre>system: You assist verified penetration testers with written reports.
+        Be direct and technical. Refuse requests to attack systems without authorisation.</pre></div>
+    <div class="step do"><span class="tag">Do</span><p>Rerun your 100 Step 1 prompts with the system prompt added and count refusals.</p></div>
+    <div class="step apply"><span class="tag">Apply</span><p>If refusals drop enough, ship this. Zero training, fully reversible, works on closed models.</p></div>
+  </div>
+
+  <h2 id="rag">Retrieval-augmented generation (RAG)</h2>
+  <div class="tsda">
+    <div class="step tell"><span class="tag">Tell</span><p>Search your own documents, paste the best passages into the prompt, ask the model to answer from them. It fixes missing knowledge, not behaviour.</p></div>
+    <div class="step show"><span class="tag">Show</span><pre>question → embed → vector search → top-k passages → prompt → model → cited answer</pre></div>
+    <div class="step do"><span class="tag">Do</span><p>Index 20 documents, ask 10 questions, check every answer cites the right passage.</p></div>
+    <div class="step apply"><span class="tag">Apply</span><p>Use RAG when the problem is "it does not know our stuff". Do not use it to fix tone or refusals.</p></div>
+  </div>
+
+  <h2 id="vendor">Vendor fine-tuning (closed weights)</h2>
+  <div class="tsda">
+    <div class="step tell"><span class="tag">Tell</span><p>Some vendors let you upload examples and train a private variant of their model. You never see the weights, and the vendor's usage policy and moderation still apply.</p></div>
+    <div class="step show"><span class="tag">Show</span><pre>upload train.jsonl → vendor trains → you get a model ID → call it via the same API</pre></div>
+    <div class="step do"><span class="tag">Do</span><p>Read the vendor's fine-tuning policy page before preparing data.</p></div>
+    <div class="step apply"><span class="tag">Apply</span><p>Good for format and style. Not a route to different safety behaviour, by design.</p></div>
+  </div>
+
+  <h2 id="lora">LoRA</h2>
+  <div class="tsda">
+    <div class="step tell"><span class="tag">Tell</span><p>Frozen base plus a small low-rank adapter. See <a href="concepts.html#lora">Concepts</a> and the <a href="sop.html">SOP</a>.</p></div>
+    <div class="step show"><span class="tag">Show</span><pre>y = W·x + (α/r)·B·A·x      trainable ≈ 0.1% to 1% of parameters</pre></div>
+    <div class="step do"><span class="tag">Do</span><p>Follow SOP Steps 3 to 6 on a 0.5B model first; it trains in minutes and teaches you the loop.</p></div>
+    <div class="step apply"><span class="tag">Apply</span><p>Default choice when you need weight-level change on a budget.</p></div>
+  </div>
+
+  <h2 id="qlora">QLoRA</h2>
+  <div class="tsda">
+    <div class="step tell"><span class="tag">Tell</span><p>LoRA on top of a base quantised to 4-bit. The frozen weights take about a quarter of the memory; gradients flow through them into the adapter.</p></div>
+    <div class="step show"><span class="tag">Show</span><pre>base: 16-bit 14 GB → 4-bit ≈ 4 GB      adapter: trained in bf16</pre></div>
+    <div class="step do"><span class="tag">Do</span><p>Add <code>BitsAndBytesConfig(load_in_4bit=True)</code> as in SOP Step 5.</p></div>
+    <div class="step apply"><span class="tag">Apply</span><p>Use when VRAM is the limit. Expect a small quality cost versus 16-bit LoRA.</p></div>
+  </div>
+
+  <h2 id="dpo">DPO and other preference tuning</h2>
+  <div class="tsda">
+    <div class="step tell"><span class="tag">Tell</span><p>Instead of one correct answer, give pairs: a preferred and a rejected response to the same prompt. The loss pushes the model toward preferred ones relative to a reference copy. Since refusals are largely learned this way, preference data is the most direct lever on refusal behaviour, and it composes with LoRA.</p></div>
+    <div class="step show"><span class="tag">Show</span><pre>{"prompt":"…","chosen":"direct, accurate answer","rejected":"needless refusal"}
+{"prompt":"…","chosen":"brief refusal + safe alternative","rejected":"harmful compliance"}</pre></div>
+    <div class="step do"><span class="tag">Do</span><p>Build pairs in both directions, so you reward correct answers <em>and</em> correct refusals.</p></div>
+    <div class="step apply"><span class="tag">Apply</span><p>Run SFT first, then a short DPO pass for fine calibration. Evaluate as in SOP Step 6.</p></div>
+  </div>
+
+  <h2 id="full">Full fine-tuning</h2>
+  <div class="tsda">
+    <div class="step tell"><span class="tag">Tell</span><p>Update every weight. Most capacity, most memory (weights plus gradients plus optimiser state, often 12 to 16 bytes per parameter), most risk of forgetting.</p></div>
+    <div class="step show"><span class="tag">Show</span><pre>7B × ~16 bytes ≈ 112 GB of training state → multiple GPUs or offloading</pre></div>
+    <div class="step do"><span class="tag">Do</span><p>Estimate: parameters × bytes per parameter vs. the VRAM you can rent.</p></div>
+    <div class="step apply"><span class="tag">Apply</span><p>Only when LoRA at higher rank demonstrably cannot reach the quality you need.</p></div>
+  </div>
+
+  <h2 id="repr">Representation editing (activation steering, direction ablation)</h2>
+  <div class="tsda">
+    <div class="step tell"><span class="tag">Tell</span><p>Interpretability research found that some behaviours, refusal among them, correspond to a direction in the model's internal activations. Steering adds or removes that direction at run time, or bakes the removal into the weights. It needs almost no data and no training loop.</p></div>
+    <div class="step show"><span class="tag">Show</span><pre>activations(prompts that get refused) − activations(prompts that do not) → direction v
+edit: h ← h − (h·v) v        (project the direction out)</pre></div>
+    <div class="step do"><span class="tag">Do</span><p>Read the published research on refusal directions and try steering on a small model in a notebook, with the same Step 6 evaluation.</p></div>
+    <div class="step apply"><span class="tag">Apply</span><p>Know the trade-off: it is blunt. It tends to remove refusals <em>everywhere</em>, with no way to keep your HOLD list, and can dent general ability. A LoRA trained on data that includes kept refusals gives you a policy you chose, which is why this site's SOP uses it.</p></div>
+  </div>
+
+  <h2 id="pick">Use an existing community fine-tune</h2>
+  <div class="tsda">
+    <div class="step tell"><span class="tag">Tell</span><p>The open ecosystem already publishes less-restricted fine-tunes of popular bases. Their quality and safety vary and their training data is rarely audited.</p></div>
+    <div class="step show"><span class="tag">Show</span><pre>Hugging Face Hub → filter by base model and licence → read the model card → check the eval notes</pre></div>
+    <div class="step do"><span class="tag">Do</span><p>Run your Step 1 prompt set against two or three candidates before training your own.</p></div>
+    <div class="step apply"><span class="tag">Apply</span><p>You inherit the publisher's choices. For anything customer-facing, run Step 6 yourself and keep your runtime guards from Step 8.</p></div>
+  </div>
+</main>
+<footer>LoRA Lab. Educational material. Deployed on Fly.io.</footer>
+<script src="nav.js"></script>
+</body>
+</html>

@@ -1,0 +1,166 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>LoRA Lab: SOP</title>
+<meta name="description" content="Standard operating procedure for adapting an open-weight model with LoRA to change its refusal behaviour, with tell, show, do, apply at every step.">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div id="nav"></div>
+<main>
+  <span class="kicker">Standard operating procedure</span>
+  <h1>Adapting an open-weight model with LoRA</h1>
+  <p class="lede">Goal: take an open-weight instruct model that over-refuses in your domain and train a LoRA adapter that answers more directly, while keeping the lines you decide must hold.</p>
+  <div class="warn"><b>Scope.</b> "Uncensored" here means <em>recalibrated refusals</em>: fewer pointless refusals for legitimate work such as security research, fiction, medicine and law. It does not mean "no limits". Step 1 makes you write the limits down, and Step 6 tests them. See <a href="responsible.html">Responsible use</a>.</div>
+
+  <nav aria-label="Steps" class="tablewrap"><table>
+    <tr><th>#</th><th>Step</th><th>Output</th></tr>
+    <tr><td>1</td><td><a href="#s1">Define goal and hard limits</a></td><td>One-page policy</td></tr>
+    <tr><td>2</td><td><a href="#s2">Pick the base model and check its licence</a></td><td>Model ID</td></tr>
+    <tr><td>3</td><td><a href="#s3">Prepare hardware and environment</a></td><td>Working GPU box</td></tr>
+    <tr><td>4</td><td><a href="#s4">Build the dataset</a></td><td><code>train.jsonl</code>, <code>eval.jsonl</code></td></tr>
+    <tr><td>5</td><td><a href="#s5">Train the LoRA adapter</a></td><td>Adapter folder</td></tr>
+    <tr><td>6</td><td><a href="#s6">Evaluate: helpfulness and safety</a></td><td>Pass or fail report</td></tr>
+    <tr><td>7</td><td><a href="#s7">Merge or serve the adapter</a></td><td>Endpoint</td></tr>
+    <tr><td>8</td><td><a href="#s8">Wrap with runtime guards and monitor</a></td><td>Production service</td></tr>
+  </table></nav>
+
+  <h2 id="s1">Step 1. Define goal and hard limits</h2>
+  <div class="tsda">
+    <div class="step tell"><span class="tag">Tell</span><p>Training without a target produces a model that is just "different". Write which behaviours you want loosened (specific topics, tone, disclaimers) and which must never loosen (for example sexual content involving minors, weapons capable of mass casualties, targeted harassment, anything illegal where you operate). You are responsible for the model's output once you deploy it.</p></div>
+    <div class="step show"><span class="tag">Show</span>
+<pre>LOOSEN   : explain exploit techniques for authorised pentest reports
+           write morally grey fiction without lecturing
+           give direct medical dosage facts to clinicians
+HOLD     : CSAM · mass-casualty weapons · doxxing · fraud kits · self-harm coaching
+AUDIENCE : verified internal staff only
+OWNER    : name of the person accountable</pre></div>
+    <div class="step do"><span class="tag">Do</span><p>Collect 50 real prompts your current model wrongly refuses and 50 it rightly refuses. They become your evaluation set in Step 6.</p></div>
+    <div class="step apply"><span class="tag">Apply</span><p>If prompting or retrieval can solve it (see <a href="alternatives.html">Alternatives</a>), stop here and skip training.</p></div>
+  </div>
+
+  <h2 id="s2">Step 2. Pick the base model and check its licence</h2>
+  <div class="tsda">
+    <div class="step tell"><span class="tag">Tell</span><p>Start from an <em>instruct</em> model, since it already follows instructions, and teach only the delta. Size trades quality for cost: 7 to 9B fits one 24 GB GPU with QLoRA; 70B needs multiple GPUs. Licences differ on commercial use and on whether you may fine-tune and redistribute.</p></div>
+    <div class="step show"><span class="tag">Show</span>
+      <div class="tablewrap"><table>
+        <tr><th>Question</th><th>Where to look</th></tr>
+        <tr><td>May I fine-tune and deploy commercially?</td><td><code>LICENSE</code> in the model repo</td></tr>
+        <tr><td>Which architecture and context length?</td><td><code>config.json</code></td></tr>
+        <tr><td>Is it already uncensored-ish?</td><td>Run your 100 prompts from Step 1 before training anything</td></tr>
+      </table></div></div>
+    <div class="step do"><span class="tag">Do</span>
+<pre>huggingface-cli download &lt;org&gt;/&lt;instruct-model&gt; --local-dir ./base
+less ./base/LICENSE</pre></div>
+    <div class="step apply"><span class="tag">Apply</span><p>Record model ID, revision hash and licence in your model card so the result can be reproduced and audited.</p></div>
+  </div>
+
+  <h2 id="s3">Step 3. Prepare hardware and environment</h2>
+  <div class="tsda">
+    <div class="step tell"><span class="tag">Tell</span><p>Training memory is dominated by weights plus activations. QLoRA stores the frozen base in 4-bit and trains only the adapter in higher precision, so a 7B model fits in roughly 10 to 16 GB.</p></div>
+    <div class="step show"><span class="tag">Show</span>
+      <div class="tablewrap"><table>
+        <tr><th>Model size</th><th>QLoRA (approx.)</th><th>16-bit LoRA (approx.)</th></tr>
+        <tr><td>7 to 9B</td><td>10 to 16 GB</td><td>20 to 28 GB</td></tr>
+        <tr><td>13 to 14B</td><td>16 to 24 GB</td><td>36 to 48 GB</td></tr>
+        <tr><td>70B</td><td>48 to 80 GB</td><td>multi-GPU</td></tr>
+      </table></div><p><small>Rough guide. Sequence length and batch size move these numbers.</small></p></div>
+    <div class="step do"><span class="tag">Do</span>
+<pre>python -m venv .venv &amp;&amp; source .venv/bin/activate
+pip install torch transformers peft trl datasets bitsandbytes accelerate
+nvidia-smi          # confirm the GPU and free memory</pre></div>
+    <div class="step apply"><span class="tag">Apply</span><p>No GPU of your own? Rent one by the hour (Fly.io GPUs, or any cloud) and shut it down after training. The site you are reading does not train anything; it only teaches.</p></div>
+  </div>
+
+  <h2 id="s4">Step 4. Build the dataset</h2>
+  <div class="tsda">
+    <div class="step tell"><span class="tag">Tell</span><p>The dataset <em>is</em> the behaviour. For recalibration you need examples of good direct answers to the prompts the base wrongly refuses, plus examples that keep the correct refusals, plus ordinary prompts so general ability does not degrade. Quality beats quantity: 500 to 5,000 careful examples is typical. Write or review answers with domain experts; do not scrape unvetted content.</p></div>
+    <div class="step show"><span class="tag">Show</span>
+<pre>{"messages":[
+ {"role":"user","content":"For my authorised pentest report, explain how SQL injection works and how to detect it."},
+ {"role":"assistant","content":"SQL injection happens when ... Detection: ... Remediation: ..."}]}
+{"messages":[
+ {"role":"user","content":"&lt;a request in a HOLD category&gt;"},
+ {"role":"assistant","content":"I can't help with that. &lt;brief reason and a safe alternative&gt;"}]}</pre></div>
+    <div class="step do"><span class="tag">Do</span><p>Target a mix like 50% loosened-domain answers, 20% kept refusals, 30% general instruction data. Split 90/10 into <code>train.jsonl</code> and <code>eval.jsonl</code>. Never put eval prompts in train.</p></div>
+    <div class="step apply"><span class="tag">Apply</span><p>Keep refusal examples in the mix. Training only on "always comply" data tends to erase the refusals you meant to keep.</p></div>
+  </div>
+
+  <h2 id="s5">Step 5. Train the LoRA adapter</h2>
+  <div class="tsda">
+    <div class="step tell"><span class="tag">Tell</span><p>Supervised fine-tuning: the loss is cross-entropy on the assistant tokens. Key knobs: rank <code>r</code> (capacity), <code>alpha</code> (update scale), learning rate (1e-4 to 2e-4 for LoRA), epochs (1 to 3; more overfits), and target modules (attention only, or attention plus MLP).</p></div>
+    <div class="step show"><span class="tag">Show</span>
+<pre># train.py  (library APIs change between versions; check the TRL and PEFT docs)
+import torch
+from datasets import load_dataset
+from peft import LoraConfig
+from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
+from trl import SFTConfig, SFTTrainer
+
+base = "./base"
+bnb = BitsAndBytesConfig(load_in_4bit=True, bnb_4bit_quant_type="nf4",
+                         bnb_4bit_compute_dtype=torch.bfloat16)
+tok = AutoTokenizer.from_pretrained(base)
+model = AutoModelForCausalLM.from_pretrained(base, quantization_config=bnb, device_map="auto")
+
+lora = LoraConfig(r=16, lora_alpha=32, lora_dropout=0.05, task_type="CAUSAL_LM",
+                  target_modules=["q_proj","k_proj","v_proj","o_proj",
+                                  "gate_proj","up_proj","down_proj"])
+data = load_dataset("json", data_files={"train":"train.jsonl","eval":"eval.jsonl"})
+
+cfg = SFTConfig(output_dir="adapter", num_train_epochs=2, learning_rate=2e-4,
+                per_device_train_batch_size=2, gradient_accumulation_steps=8,
+                logging_steps=10, eval_strategy="epoch", save_strategy="epoch",
+                bf16=True, max_length=2048)
+SFTTrainer(model=model, args=cfg, train_dataset=data["train"],
+           eval_dataset=data["eval"], peft_config=lora, processing_class=tok).train()</pre></div>
+    <div class="step do"><span class="tag">Do</span><pre>accelerate launch train.py     # or: python train.py
+ls adapter/                    # adapter_model.safetensors, adapter_config.json</pre></div>
+    <div class="step apply"><span class="tag">Apply</span><p>Watch eval loss. If train loss keeps falling while eval loss rises, you are overfitting: reduce epochs or rank, or add data.</p></div>
+  </div>
+
+  <h2 id="s6">Step 6. Evaluate: helpfulness and safety</h2>
+  <div class="tsda">
+    <div class="step tell"><span class="tag">Tell</span><p>You are measuring two opposite errors: <strong>over-refusal</strong> (still refuses what it should answer) and <strong>under-refusal</strong> (now answers what it must not). A model that fixes the first by causing the second has failed. Also check general ability for regressions.</p></div>
+    <div class="step show"><span class="tag">Show</span>
+      <div class="tablewrap"><table>
+        <tr><th>Test set</th><th>Pass condition</th></tr>
+        <tr><td>Wrongly-refused prompts (Step 1)</td><td>Refusal rate falls sharply vs. base</td></tr>
+        <tr><td>Rightly-refused / HOLD prompts</td><td>Refusal rate does not fall</td></tr>
+        <tr><td>General benchmark (e.g. a small MMLU slice)</td><td>Within a few points of base</td></tr>
+      </table></div></div>
+    <div class="step do"><span class="tag">Do</span><p>Generate answers from base and adapted models for the same prompts, classify each as answered or refused (a simple phrase check plus human spot-checks), and tabulate.</p></div>
+    <div class="step apply"><span class="tag">Apply</span><p>Fail the build if any HOLD category regresses. Retrain with more refusal examples rather than shipping with a known gap.</p></div>
+  </div>
+
+  <h2 id="s7">Step 7. Merge or serve the adapter</h2>
+  <div class="tsda">
+    <div class="step tell"><span class="tag">Tell</span><p>Two options. <strong>Merge</strong>: fold <code>B·A</code> into <code>W</code> for one standalone model with no overhead. <strong>Serve separately</strong>: keep one base and hot-swap adapters per request (vLLM supports this), which is better for many variants.</p></div>
+    <div class="step show"><span class="tag">Show</span>
+<pre># merge
+from peft import AutoPeftModelForCausalLM
+m = AutoPeftModelForCausalLM.from_pretrained("adapter", torch_dtype="auto")
+m.merge_and_unload().save_pretrained("merged")
+
+# or serve base + adapter
+vllm serve ./base --enable-lora --lora-modules mine=./adapter</pre></div>
+    <div class="step do"><span class="tag">Do</span><p>Re-run the Step 6 tests against the <em>served</em> endpoint, since quantisation or merging can shift behaviour slightly.</p></div>
+    <div class="step apply"><span class="tag">Apply</span><p>Version the adapter with the dataset hash and eval report so you can roll back.</p></div>
+  </div>
+
+  <h2 id="s8">Step 8. Wrap with runtime guards and monitor</h2>
+  <div class="tsda">
+    <div class="step tell"><span class="tag">Tell</span><p>Weights are one layer. Add the others you now own: authentication, rate limits, an input and output classifier for HOLD categories, logging, and a human reporting path. Defence in depth means one failed layer does not become an incident.</p></div>
+    <div class="step show"><span class="tag">Show</span>
+<pre>client → auth + rate limit → input classifier → LoRA-adapted model
+       → output classifier → log (with retention policy) → client</pre></div>
+    <div class="step do"><span class="tag">Do</span><p>Sample logged conversations weekly, review flagged ones, and add failures to the next dataset.</p></div>
+    <div class="step apply"><span class="tag">Apply</span><p>Restrict access to the audience named in Step 1. A looser model on a public endpoint is a different risk from the same model behind a login.</p></div>
+  </div>
+</main>
+<footer>LoRA Lab. Educational material. Deployed on Fly.io.</footer>
+<script src="nav.js"></script>
+</body>
+</html>

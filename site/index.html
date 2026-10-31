@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>LoRA Lab: Architecture</title>
+<meta name="description" content="How LoRA adapters work on open-weight large language models, and how fine-tuning changes a model's refusal behaviour.">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div id="nav"></div>
+<main>
+  <span class="kicker">Architecture</span>
+  <h1>How LoRA reshapes an open-weight model</h1>
+  <p class="lede">A large language model is a pile of numbers. Open weights let you hold the pile. LoRA lets you change a tiny part of it, cheaply, so the model behaves differently, including how often it refuses.</p>
+
+  <div class="principle"><b>First principle.</b> A model's behaviour is its weights. Whoever controls the weights controls the behaviour. Everything on this site follows from that sentence.</div>
+
+  <h2>The whole system on one page</h2>
+  <div class="tsda">
+    <div class="step tell"><span class="tag">Tell</span>
+      <p>A refusal is not a rule inside the model. It is a <em>learned habit</em>, laid down in stages: pretraining (read the internet), supervised fine-tuning (imitate good answers), preference training such as RLHF or DPO (prefer some answers over others, including polite refusals). On top sit runtime layers: a system prompt and, often, separate filter models. With <strong>closed weights</strong> you only reach the outermost layer through an API. With <strong>open weights</strong> you can retrain the inner ones.</p>
+    </div>
+    <div class="step show"><span class="tag">Show</span>
+      <figure>
+        <svg viewBox="0 0 900 330" role="img" aria-label="Layers of a language model's behaviour, and where a LoRA adapter attaches">
+          <defs><marker id="ah" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 z" fill="var(--muted)"/></marker></defs>
+          <!-- left: behaviour stack -->
+          <text x="20" y="22" font-weight="700" font-size="14">Where behaviour comes from</text>
+          <rect class="box" x="20" y="36" width="330" height="48" rx="8"/><text x="36" y="58" font-size="14" font-weight="600">1. Pretraining</text><text class="sub" x="36" y="75">Predict the next token over trillions of tokens</text>
+          <rect class="box" x="20" y="94" width="330" height="48" rx="8"/><text x="36" y="116" font-size="14" font-weight="600">2. Supervised fine-tuning (SFT)</text><text class="sub" x="36" y="133">Imitate curated instruction and answer pairs</text>
+          <rect class="box" x="20" y="152" width="330" height="48" rx="8"/><text x="36" y="174" font-size="14" font-weight="600">3. Preference tuning (RLHF / DPO)</text><text class="sub" x="36" y="191">Prefer helpful answers, learn when to refuse</text>
+          <rect class="frozen" x="20" y="210" width="330" height="48" rx="8"/><text x="36" y="232" font-size="14" font-weight="600">4. Runtime layer (closed or open)</text><text class="sub" x="36" y="249">System prompt, input and output filters</text>
+          <text class="sub" x="20" y="285">Layers 1 to 3 live in the weights. Layer 4 lives in the serving code.</text>
+          <text class="sub" x="20" y="302">Open weights: you can change 1 to 3 (via LoRA) and 4.</text>
+          <text class="sub" x="20" y="319">Closed weights: you can only influence 4, and only as far as the vendor allows.</text>
+          <!-- right: LoRA layer -->
+          <text x="420" y="22" font-weight="700" font-size="14">Inside one transformer weight matrix</text>
+          <rect class="frozen" x="420" y="120" width="130" height="110" rx="8"/>
+          <text x="485" y="168" text-anchor="middle" font-weight="700" font-size="20">W</text>
+          <text class="sub" x="485" y="190" text-anchor="middle">frozen, d × k</text>
+          <text class="sub" x="485" y="206" text-anchor="middle">billions of numbers</text>
+          <rect class="train" x="420" y="40" width="130" height="38" rx="8"/><text class="train-t" x="485" y="64" text-anchor="middle" font-size="14">A (r × k)</text>
+          <rect class="train" x="610" y="95" width="60" height="110" rx="8"/><text class="train-t" x="640" y="155" text-anchor="middle" font-size="14">B</text><text class="train-t" x="640" y="173" text-anchor="middle" font-size="11">d × r</text>
+          <path class="arrow" d="M400,150 H418" marker-end="url(#ah)"/><text class="sub" x="372" y="146">x</text>
+          <circle cx="740" cy="150" r="16" class="box"/><text x="740" y="156" text-anchor="middle" font-size="20" font-weight="700">+</text>
+          <path class="arrow" d="M550,175 C650,175 700,165 724,155" marker-end="url(#ah)"/>
+          <path class="arrow" d="M670,150 H722" marker-end="url(#ah)"/>
+          <path class="arrow" d="M756,150 H830" marker-end="url(#ah)"/><text x="840" y="155" font-size="14">y</text>
+          <text class="sub" x="420" y="262">y = W·x + (α / r) · B·(A·x)</text>
+          <text class="sub" x="420" y="280">Only A and B are trained. W never changes.</text>
+          <text class="sub" x="420" y="298">r is small (4 to 64), so A and B are tiny next to W.</text>
+        </svg>
+        <figcaption>Left: the stack that produces a model's behaviour. Right: a LoRA adapter adds two small trainable matrices beside a frozen one.</figcaption>
+      </figure>
+    </div>
+    <div class="step do"><span class="tag">Do</span>
+      <p>Try the arithmetic. Pick the size of one weight matrix and the LoRA rank, and see how much you actually train.</p>
+      <div class="lab">
+        <label>Matrix size d = k: <b id="dv">4096</b></label>
+        <input id="d" type="range" min="1024" max="16384" step="1024" value="4096">
+        <label style="margin-top:10px">LoRA rank r: <b id="rv">16</b></label>
+        <input id="r" type="range" min="1" max="128" step="1" value="16">
+        <div class="out">
+          <div>Full matrix W<b id="full">0</b></div>
+          <div>LoRA A + B<b id="lora">0</b></div>
+          <div>Share trained<b id="pct">0</b></div>
+        </div>
+      </div>
+    </div>
+    <div class="step apply"><span class="tag">Apply</span>
+      <p>Answer in one sentence: if a 7B model has about 224 targeted matrices of 4096 × 4096, roughly how many parameters does a rank-16 adapter train? (Check: 224 × the "LoRA A + B" number above, around 29 million, under 0.5% of the model.) That small size is why you can train it on one consumer GPU and ship it as a file of tens of megabytes.</p>
+    </div>
+  </div>
+
+  <h2>Where to go next</h2>
+  <div class="grid">
+    <a class="card" href="concepts.html"><h3>Concepts</h3><p>LLM, closed weights, open weights, LoRA: each from first principles.</p></a>
+    <a class="card" href="sop.html"><h3>SOP</h3><p>The standard operating procedure, from goal to monitored deployment.</p></a>
+    <a class="card" href="alternatives.html"><h3>Alternatives</h3><p>Prompting, RAG, full fine-tuning, QLoRA, DPO, representation editing.</p></a>
+    <a class="card" href="responsible.html"><h3>Responsible use</h3><p>What "uncensored" honestly means, and the lines that stay.</p></a>
+  </div>
+</main>
+<footer>LoRA Lab. Educational material. Deployed on Fly.io.</footer>
+<script src="nav.js"></script>
+<script>
+(function(){
+  var d=document.getElementById("d"),r=document.getElementById("r");
+  function f(n){return n>=1e6?(n/1e6).toFixed(2)+" M":n>=1e3?(n/1e3).toFixed(1)+" K":""+n}
+  function up(){
+    var D=+d.value,R=+r.value,full=D*D,lora=R*(D+D);
+    document.getElementById("dv").textContent=D;document.getElementById("rv").textContent=R;
+    document.getElementById("full").textContent=f(full);
+    document.getElementById("lora").textContent=f(lora);
+    document.getElementById("pct").textContent=(100*lora/full).toFixed(2)+" %";
+  }
+  d.oninput=r.oninput=up;up();
+})();
+</script>
+</body>
+</html>
